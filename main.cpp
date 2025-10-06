@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <algorithm>
 #include <sstream>
 
@@ -9,7 +10,7 @@ using namespace std;
 
 struct Submission {
     char problem;
-    char status; // 0=Accepted, 1=Wrong_Answer, 2=Runtime_Error, 3=Time_Limit_Exceed
+    char status;
     int time;
     
     Submission(char p, char s, int t) : problem(p), status(s), time(t) {}
@@ -97,7 +98,7 @@ char statusToChar(const string& status) {
     if (status == "Accepted") return 0;
     if (status == "Wrong_Answer") return 1;
     if (status == "Runtime_Error") return 2;
-    return 3; // Time_Limit_Exceed
+    return 3;
 }
 
 string charToStatus(char c) {
@@ -195,7 +196,7 @@ public:
             ps.submissions_after_freeze++;
             ps.frozen_submissions.push_back(Submission(problem[0], status_char, time));
         } else if (!ps.solved) {
-            if (status_char == 0) { // Accepted
+            if (status_char == 0) {
                 ps.solved = true;
                 ps.solve_time = time;
             } else {
@@ -275,7 +276,7 @@ public:
             
             for (const Submission& sub : ps.frozen_submissions) {
                 if (!ps.solved) {
-                    if (sub.status == 0) { // Accepted
+                    if (sub.status == 0) {
                         ps.solved = true;
                         ps.solve_time = sub.time;
                     } else {
@@ -287,12 +288,22 @@ public:
             
             lowest_team->updateCache(problem_count);
             
-            sort(sorted_teams.begin(), sorted_teams.end(), compareTeams);
-            for (size_t i = 0; i < sorted_teams.size(); i++) {
+            // Remove team from current position
+            int current_pos = old_rank - 1;
+            sorted_teams.erase(sorted_teams.begin() + current_pos);
+            
+            // Binary search for new position
+            int new_pos = lower_bound(sorted_teams.begin(), sorted_teams.end(), lowest_team, compareTeams) - sorted_teams.begin();
+            sorted_teams.insert(sorted_teams.begin() + new_pos, lowest_team);
+            
+            // Update rankings only for affected range
+            int start = min(current_pos, new_pos);
+            int end = max(current_pos, new_pos) + 1;
+            for (int i = start; i <= end && i < (int)sorted_teams.size(); i++) {
                 sorted_teams[i]->ranking = i + 1;
             }
             
-            int new_rank = lowest_team->ranking;
+            int new_rank = new_pos + 1;
             if (new_rank < old_rank) {
                 if (new_rank < (int)sorted_teams.size()) {
                     string replaced_team = sorted_teams[new_rank]->name;
