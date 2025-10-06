@@ -2,7 +2,6 @@
 #include <string>
 #include <vector>
 #include <map>
-#include <set>
 #include <algorithm>
 #include <sstream>
 
@@ -17,19 +16,14 @@ struct Submission {
 };
 
 struct ProblemStatus {
-    int wrong_attempts = 0;           // Wrong attempts before first AC (or total if not solved and not frozen)
-    int solve_time = -1;              // Time when solved (-1 if not solved)
+    int wrong_attempts = 0;
+    int solve_time = -1;
     bool solved = false;
-    int wrong_before_freeze = 0;      // Wrong attempts before freeze
-    int submissions_after_freeze = 0; // Total submissions after freeze
-    bool frozen = false;              // Is this problem frozen?
-    bool was_unsolved_at_freeze = false; // Was unsolved when freeze happened
-    vector<Submission> frozen_submissions; // Submissions made while frozen
-    
-    int getWrongAttempts() const {
-        if (frozen) return wrong_before_freeze;
-        return solved ? wrong_attempts : wrong_attempts;
-    }
+    int wrong_before_freeze = 0;
+    int submissions_after_freeze = 0;
+    bool frozen = false;
+    bool was_unsolved_at_freeze = false;
+    vector<Submission> frozen_submissions;
 };
 
 struct Team {
@@ -37,39 +31,26 @@ struct Team {
     map<string, ProblemStatus> problems;
     vector<Submission> all_submissions;
     int ranking = 0;
+    int cached_solved = 0;
+    int cached_penalty = 0;
+    vector<int> cached_times;
     
     Team() {}
     Team(string n) : name(n) {}
     
-    int getSolvedCount(bool include_frozen = false) const {
-        int count = 0;
+    void updateCache() {
+        cached_solved = 0;
+        cached_penalty = 0;
+        cached_times.clear();
+        
         for (const auto& p : problems) {
-            if (p.second.solved && (!p.second.frozen || include_frozen)) {
-                count++;
+            if (p.second.solved && !p.second.frozen) {
+                cached_solved++;
+                cached_penalty += 20 * p.second.wrong_attempts + p.second.solve_time;
+                cached_times.push_back(p.second.solve_time);
             }
         }
-        return count;
-    }
-    
-    int getPenaltyTime(bool include_frozen = false) const {
-        int penalty = 0;
-        for (const auto& p : problems) {
-            if (p.second.solved && (!p.second.frozen || include_frozen)) {
-                penalty += 20 * p.second.wrong_attempts + p.second.solve_time;
-            }
-        }
-        return penalty;
-    }
-    
-    vector<int> getSolveTimes(bool include_frozen = false) const {
-        vector<int> times;
-        for (const auto& p : problems) {
-            if (p.second.solved && (!p.second.frozen || include_frozen)) {
-                times.push_back(p.second.solve_time);
-            }
-        }
-        sort(times.rbegin(), times.rend());
-        return times;
+        sort(cached_times.rbegin(), cached_times.rend());
     }
     
     string getProblemDisplay(const string& prob_name) const {
@@ -97,6 +78,22 @@ struct Team {
     }
 };
 
+bool compareTeams(const Team* a, const Team* b) {
+    if (a->cached_solved != b->cached_solved) 
+        return a->cached_solved > b->cached_solved;
+    
+    if (a->cached_penalty != b->cached_penalty) 
+        return a->cached_penalty < b->cached_penalty;
+    
+    size_t minsize = min(a->cached_times.size(), b->cached_times.size());
+    for (size_t i = 0; i < minsize; i++) {
+        if (a->cached_times[i] != b->cached_times[i]) 
+            return a->cached_times[i] < b->cached_times[i];
+    }
+    
+    return a->name < b->name;
+}
+
 class ICPCSystem {
 private:
     map<string, Team> teams;
@@ -107,56 +104,38 @@ private:
     vector<string> problem_names;
     bool is_frozen = false;
     
-    bool compareTeams(const Team& a, const Team& b) const {
-        int solved_a = a.getSolvedCount();
-        int solved_b = b.getSolvedCount();
-        
-        if (solved_a != solved_b) return solved_a > solved_b;
-        
-        int penalty_a = a.getPenaltyTime();
-        int penalty_b = b.getPenaltyTime();
-        
-        if (penalty_a != penalty_b) return penalty_a < penalty_b;
-        
-        vector<int> times_a = a.getSolveTimes();
-        vector<int> times_b = b.getSolveTimes();
-        
-        for (size_t i = 0; i < min(times_a.size(), times_b.size()); i++) {
-            if (times_a[i] != times_b[i]) return times_a[i] < times_b[i];
-        }
-        
-        return a.name < b.name;
-    }
-    
     void updateRankings() {
         vector<Team*> team_list;
+        team_list.reserve(teams.size());
+        
         for (auto& p : teams) {
+            p.second.updateCache();
             team_list.push_back(&p.second);
         }
         
-        sort(team_list.begin(), team_list.end(), 
-             [this](const Team* a, const Team* b) { return compareTeams(*a, *b); });
+        sort(team_list.begin(), team_list.end(), compareTeams);
         
         for (size_t i = 0; i < team_list.size(); i++) {
             team_list[i]->ranking = i + 1;
         }
     }
     
-    void printScoreboard() const {
-        vector<const Team*> team_list;
-        for (const auto& p : teams) {
+    void printScoreboard() {
+        vector<Team*> team_list;
+        team_list.reserve(teams.size());
+        
+        for (auto& p : teams) {
             team_list.push_back(&p.second);
         }
         
-        sort(team_list.begin(), team_list.end(), 
-             [this](const Team* a, const Team* b) { return compareTeams(*a, *b); });
+        sort(team_list.begin(), team_list.end(), compareTeams);
         
-        for (const auto* team : team_list) {
+        for (auto* team : team_list) {
             cout << team->name << " " << team->ranking << " " 
-                 << team->getSolvedCount() << " " << team->getPenaltyTime();
+                 << team->cached_solved << " " << team->cached_penalty;
             
-            for (const string& prob : problem_names) {
-                cout << " " << team->getProblemDisplay(prob);
+            for (const string& prob_name : problem_names) {
+                cout << " " << team->getProblemDisplay(prob_name);
             }
             cout << "\n";
         }
@@ -183,6 +162,7 @@ public:
             duration_time = duration;
             problem_count = prob_count;
             
+            problem_names.reserve(prob_count);
             for (int i = 0; i < prob_count; i++) {
                 problem_names.push_back(string(1, 'A' + i));
             }
@@ -199,7 +179,6 @@ public:
         
         ProblemStatus& ps = team.problems[problem];
         
-        // Check if this submission happens after freeze and problem was unsolved at freeze
         if (is_frozen && ps.was_unsolved_at_freeze) {
             if (!ps.frozen) {
                 ps.frozen = true;
@@ -208,7 +187,6 @@ public:
             ps.submissions_after_freeze++;
             ps.frozen_submissions.push_back(Submission(problem, status, time));
         } else if (!ps.solved) {
-            // Normal submission processing (before freeze or problem was already solved at freeze)
             if (status == "Accepted") {
                 ps.solved = true;
                 ps.solve_time = time;
@@ -229,7 +207,6 @@ public:
         } else {
             is_frozen = true;
             
-            // Mark all currently unsolved problems as potentially frozen
             for (auto& team_pair : teams) {
                 Team& team = team_pair.second;
                 for (const string& prob : problem_names) {
@@ -255,46 +232,36 @@ public:
         updateRankings();
         printScoreboard();
         
-        // Perform scroll operation
         while (true) {
             Team* lowest_team = nullptr;
             int lowest_rank = -1;
+            string smallest_frozen;
             
             // Find lowest-ranked team with frozen problems
             for (auto& p : teams) {
                 Team& team = p.second;
-                bool has_frozen_prob = false;
                 
-                for (auto& prob : team.problems) {
-                    if (prob.second.frozen) {
-                        has_frozen_prob = true;
-                        break;
+                for (const string& prob : problem_names) {
+                    auto it = team.problems.find(prob);
+                    if (it != team.problems.end() && it->second.frozen) {
+                        if (lowest_team == nullptr || team.ranking > lowest_rank) {
+                            lowest_team = &team;
+                            lowest_rank = team.ranking;
+                            smallest_frozen = prob;
+                        } else if (team.ranking == lowest_rank && &team == lowest_team) {
+                            // Same team, already have the first frozen problem
+                        }
+                        break; // Only consider first frozen problem
                     }
-                }
-                
-                if (has_frozen_prob && (lowest_team == nullptr || team.ranking > lowest_rank)) {
-                    lowest_team = &team;
-                    lowest_rank = team.ranking;
                 }
             }
             
             if (lowest_team == nullptr) break;
             
-            // Find smallest problem number that is frozen
-            string smallest_frozen;
-            for (const string& prob : problem_names) {
-                auto it = lowest_team->problems.find(prob);
-                if (it != lowest_team->problems.end() && it->second.frozen) {
-                    smallest_frozen = prob;
-                    break;
-                }
-            }
-            
-            // Save old ranking for this team
             string team_name = lowest_team->name;
             int old_rank = lowest_team->ranking;
             
-            // Unfreeze the problem and process frozen submissions
+            // Unfreeze the problem
             ProblemStatus& ps = lowest_team->problems[smallest_frozen];
             ps.frozen = false;
             
@@ -310,13 +277,14 @@ public:
             }
             ps.frozen_submissions.clear();
             
-            // Update rankings
+            // Update only this team's cache first
+            lowest_team->updateCache();
+            
+            // Update all rankings
             updateRankings();
             
-            // Check if ranking changed
             int new_rank = lowest_team->ranking;
             if (new_rank < old_rank) {
-                // Find team at the new rank position (excluding the moving team)
                 string replaced_team;
                 for (const auto& p : teams) {
                     if (p.second.name != team_name && p.second.ranking == new_rank + 1) {
@@ -327,15 +295,13 @@ public:
                 
                 if (!replaced_team.empty()) {
                     cout << team_name << " " << replaced_team << " " 
-                         << lowest_team->getSolvedCount() << " " 
-                         << lowest_team->getPenaltyTime() << "\n";
+                         << lowest_team->cached_solved << " " << lowest_team->cached_penalty << "\n";
                 }
             }
         }
         
         printScoreboard();
         
-        // Unfreeze state and reset flags
         is_frozen = false;
         for (auto& team_pair : teams) {
             Team& team = team_pair.second;
