@@ -132,15 +132,18 @@ private:
         }
     }
     
-    void printScoreboard() {
+    void printScoreboard(vector<Team*>* presorted = nullptr) {
         vector<Team*> team_list;
-        team_list.reserve(teams.size());
         
-        for (auto& p : teams) {
-            team_list.push_back(&p.second);
+        if (presorted) {
+            team_list = *presorted;
+        } else {
+            team_list.reserve(teams.size());
+            for (auto& p : teams) {
+                team_list.push_back(&p.second);
+            }
+            sort(team_list.begin(), team_list.end(), compareTeams);
         }
-        
-        sort(team_list.begin(), team_list.end(), compareTeams);
         
         for (auto* team : team_list) {
             cout << team->name << " " << team->ranking << " " 
@@ -239,7 +242,6 @@ public:
         cout << "[Info]Scroll scoreboard.\n";
         
         updateRankings();
-        printScoreboard();
         
         vector<Team*> sorted_teams;
         sorted_teams.reserve(teams.size());
@@ -247,6 +249,8 @@ public:
             sorted_teams.push_back(&p.second);
         }
         sort(sorted_teams.begin(), sorted_teams.end(), compareTeams);
+        
+        printScoreboard(&sorted_teams);
         
         while (true) {
             Team* lowest_team = nullptr;
@@ -315,7 +319,7 @@ public:
             }
         }
         
-        printScoreboard();
+        printScoreboard(&sorted_teams);
         
         is_frozen = false;
         for (auto& team_pair : teams) {
